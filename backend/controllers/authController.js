@@ -1,6 +1,7 @@
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
+import Token from '../models/Token.js'; // Add this
 import { ErrorResponse } from '../middleware/errorMiddleware.js';
 
 export const signup = async (req, res, next) => {
@@ -59,6 +60,33 @@ export const login = async (req, res, next) => {
       message: "login success",
       token,
       user: { id: user._id, name: user.name, role: user.role }
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// New logout function (Option 2)
+export const logout = async (req, res, next) => {
+  try {
+    const token = req.headers.authorization?.split(' ')[1];
+    
+    if (!token) {
+      return next(new ErrorResponse('No token provided', 400));
+    }
+
+    // Verify the token to get its expiration
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    
+    // Add token to blacklist
+    await Token.create({
+      token,
+      expiresAt: new Date(decoded.exp * 1000) // Convert JWT exp to Date
+    });
+
+    res.status(200).json({
+      success: true,
+      message: "Logged out successfully"
     });
   } catch (err) {
     next(err);
