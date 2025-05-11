@@ -1,31 +1,33 @@
 import express from 'express';
-import { check } from 'express-validator';
+import {
+  createSession,
+  getActiveSessions,
+  terminateSession
+} from '../controllers/sessionController.js';
 import { protect, authorizeRoles } from '../middleware/authMiddleware.js';
-import { startSession, validateSession } from '../controllers/sessionController.js';
 
 const router = express.Router();
 
-// Teacher starts session
 router.post(
   '/start',
-  [
-    check('className', 'Class name is required').not().isEmpty(),
-    check('subjectId', 'Subject ID is required').isMongoId()
-  ],
   protect,
   authorizeRoles('teacher'),
-  startSession
+  createSession
 );
 
-// Student validates session
-router.post(
-  '/validate',
-  [
-    check('sessionId', 'Session ID is required').not().isEmpty()
-  ],
+//still needs to be worked on.
+router.get(
+  '/active',
   protect,
-  authorizeRoles('student'),
-  validateSession
+  authorizeRoles('teacher'),
+  getActiveSessions
+);
+
+router.patch(
+  '/terminate/:id', //sessionId
+  protect,
+  authorizeRoles('teacher'),
+  terminateSession
 );
 
 export default router;

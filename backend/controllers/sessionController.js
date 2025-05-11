@@ -1,118 +1,165 @@
-import Session from '../models/Session.js';
-import Attendance from '../models/Attendance.js';
-import User from '../models/User.js';
-import qr from 'qr-image';
-import { v4 as uuidv4 } from 'uuid';
-import { ErrorResponse } from '../middleware/errorMiddleware.js';
+import AttendanceSession from '../models/session.models.js';
+import QRCode from 'qrcode';
+import crypto from 'crypto';
 
-// Teacher starts a new session
-export const startSession = async (req, res, next) => {
+const createSession = async (req, res) => {
   try {
-    const { className, subjectId } = req.body;
-    const teacherId = req.user.id;
+    const { subject, classroom } = req.body;
+    const teacher = req.user._id;
 
-    // Verify teacher is assigned to this class and subject
-    const teacher = await User.findOne({
-      _id: teacherId,
-      className,
-      subjects: subjectId,
-      role: 'teacher'
-    });
-
-    if (!teacher) {
-      return next(new ErrorResponse('Not authorized for this class/subject', 403));
+    if (!subject || !classroom) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Subject and classroom are required' 
+      });
     }
 
-    // Generate session data
-    const sessionId = uuidv4();
-    const expiresAt = new Date(Date.now() + 3 * 60 * 1000); // 3 minutes
-
-    // Create QR Code
-    const qrData = JSON.stringify({
-      sessionId,
-      className,
-      subjectId,
-      expiresAt: expiresAt.toISOString()
+    // 1. Generate secure session token
+    const sessionToken = crypto.randomBytes(32).toString('hex');
+    
+    // 2. Create optimized QR payload
+    const qrPayload = JSON.stringify({
+      t: teacher.toString(),
+      s: subject.toString(),
+      c: classroom.toString(),
+      tk: sessionToken
     });
 
-    const qrImage = qr.imageSync(qrData, { type: 'png' });
-    const qrBase64 = `data:image/png;base64,${qrImage.toString('base64')}`;
-
-    // Create session record
-    const session = await Session.create({
-      sessionId,
-      className,
-      subject: subjectId,
-      teacher: teacherId,
-      expiresAt,
-      isActive: true
+    // 3. Generate QR code with optimized settings
+    const qrCode = await QRCode.toDataURL(qrPayload, {
+      errorCorrectionLevel: 'L',
+      margin: 1,
+      scale: 4
     });
 
+    // 4. Create session with explicit status and auto-expiry
+    const session = new AttendanceSession({
+      teacher,
+      subject,
+      classroom,
+      qrCode: sessionToken,
+      durationMinutes: req.body.duration || 3,
+      status: 'active' // Explicitly set status
+    });
+
+    await session.save();
+
+    // 5. Response optimized for frontend
     res.status(201).json({
       success: true,
-      qrCode: qrBase64,
-      sessionId: session.sessionId,
-      expiresAt: session.expiresAt
+      message: "Session started successfully",
+      sessionId: session._id,
+      qrCodeImage: qrCode,
+      expiresAt: session.expiresAt,
+      durationMinutes: session.durationMinutes,
+      status: session.status
     });
 
   } catch (err) {
-    next(err);
+    console.error('Session creation error:', err);
+    res.status(500).json({ 
+      success: false,
+      message: 'Session creation failed',
+      error: process.env.NODE_ENV === 'development' ? err.message : undefined
+    });
   }
 };
 
-// Student validates and marks attendance
-export const validateSession = async (req, res, next) => {
+const getActiveSessions = async (req, res) => {
   try {
-    const { sessionId } = req.body;
-    const studentId = req.user.id;
+    const currentTime = new Date();
+    
+    // Find active sessions that haven't expired yet
+    const sessions = await AttendanceSession.find({
+      teacher: req.user._id,
+      status: 'active',
+      expiresAt: { $gt: currentTime }
+    })
+    .populate({
+      path: 'subject',
+      select: 'name code _id'
+    })
+    .populate({
+      path: 'classroom',
+      select: 'name _id'
+    })
+    .lean(); // Using lean() for better performance
 
-    // Find valid session
-    const session = await Session.findOne({ sessionId });
-    if (!session || !session.isActive) {
-      return next(new ErrorResponse('Invalid session', 400));
-    }
+    // Calculate remaining time for each session
+    const enrichedSessions = sessions.map(session => ({
+      ...session,
+      expiresInMinutes: Math.max(0, Math.round((session.expiresAt - currentTime) / 60000))
+    }));
 
-    // Check expiration
-    if (new Date() > session.expiresAt) {
-      session.isActive = false;
-      await session.save();
-      return next(new ErrorResponse('Session expired', 400));
-    }
-
-    // Verify student belongs to this class and subject
-    const student = await User.findOne({
-      _id: studentId,
-      className: session.className,
-      subjects: session.subject,
-      role: 'student'
-    });
-
-    if (!student) {
-      return next(new ErrorResponse('Not enrolled in this class/subject', 403));
-    }
-
-    // Check existing attendance
-    const existingAttendance = await Attendance.findOne({
-      student: studentId,
-      session: session._id
-    });
-
-    if (existingAttendance) {
-      return next(new ErrorResponse('Attendance already marked', 400));
-    }
-
-    // Record attendance
-    await Attendance.create({
-      student: studentId,
-      session: session._id
-    });
-
-    res.status(200).json({
+    res.json({
       success: true,
-      message: 'Attendance marked successfully'
+      count: enrichedSessions.length,
+      data: enrichedSessions
     });
-
   } catch (err) {
-    next(err);
+    console.error('Failed to fetch active sessions:', err);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to fetch active sessions',
+      error: process.env.NODE_ENV === 'development' ? err.message : undefined
+    });
   }
 };
+
+const terminateSession = async (req, res) => {
+  try {
+    const session = await AttendanceSession.findOne({
+      _id: req.params.id,
+      teacher: req.user._id,
+      status: 'active' // Only allow terminating active sessions
+    });
+
+    if (!session) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Active session not found or already terminated/expired' 
+      });
+    }
+
+    // Update session to terminated status
+    session.status = 'terminated';
+    session.expiresAt = new Date(); // Set expiration to now
+    await session.save();
+
+    res.json({ 
+      success: true, 
+      message: 'Session terminated successfully',
+      terminatedAt: new Date()
+    });
+  } catch (err) {
+    console.error('Session termination error:', err);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to terminate session',
+      error: process.env.NODE_ENV === 'development' ? err.message : undefined
+    });
+  }
+};
+
+// Optional: Background task to mark expired sessions
+const updateExpiredSessions = async () => {
+  try {
+    const result = await AttendanceSession.updateMany(
+      {
+        status: 'active',
+        expiresAt: { $lt: new Date() }
+      },
+      {
+        $set: { status: 'expired' }
+      }
+    );
+    console.log(`Marked ${result.modifiedCount} sessions as expired`);
+  } catch (err) {
+    console.error('Error updating expired sessions:', err);
+  }
+};
+
+// Run the expiration check periodically (e.g., every 5 minutes)
+// setInterval(updateExpiredSessions, 5 * 60 * 1000);
+
+export { createSession, getActiveSessions, terminateSession };
