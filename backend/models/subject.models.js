@@ -1,0 +1,16 @@
+import mongoose from 'mongoose';
+
+const subjectSchema = new mongoose.Schema({
+  code: { 
+    type: String, 
+    required: true 
+  },
+  name: { 
+    type: String, 
+    required: true 
+  }
+});
+
+const Subject = mongoose.model('Subject', subjectSchema);
+
+export default Subject;

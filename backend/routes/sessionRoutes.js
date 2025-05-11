@@ -1,32 +1,33 @@
 import express from 'express';
-import { check } from 'express-validator';
+import {
+  createSession,
+  getActiveSessions,
+  terminateSession
+} from '../controllers/sessionController.js';
 import { protect, authorizeRoles } from '../middleware/authMiddleware.js';
-import { startSession, getSessions, getSessionById } from '../controllers/sessionController.js';
 
 const router = express.Router();
 
 router.post(
   '/start',
-  [
-    check('className', 'Class name is required').not().isEmpty(),
-    check('subjectId', 'Subject ID is required').not().isEmpty()
-  ],
   protect,
   authorizeRoles('teacher'),
-  startSession
+  createSession
 );
 
+//still needs to be worked on.
 router.get(
-  '/',
+  '/active',
   protect,
   authorizeRoles('teacher'),
-  getSessions
+  getActiveSessions
 );
 
-router.get(
-  '/:id',
+router.patch(
+  '/terminate/:id', //sessionId
   protect,
-  getSessionById
+  authorizeRoles('teacher'),
+  terminateSession
 );
 
 export default router;
