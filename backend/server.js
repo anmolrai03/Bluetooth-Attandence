@@ -2,14 +2,11 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import connectDB from './config/db.js';
-import authRoutes from './routes/authRoutes.js';
-import sessionRoutes from './routes/sessionRoutes.js';
-import attendanceRoutes from './routes/attendanceRoutes.js';
+// import authRoutes from './routes/authRoutes.js';
+// import sessionRoutes from './routes/sessionRoutes.js';
+// import attendanceRoutes from './routes/attendanceRoutes.js';
 import { errorHandler } from './middleware/errorMiddleware.js';
-
-
-import subjectRoutes from './routes/subjectRoute.js';
-
+// import subjectRoutes from './routes/subjectRoute.js';
 
 
 dotenv.config();
@@ -28,11 +25,11 @@ app.use(express.json());
 // connectDB();
 
 // Routes
-app.use('/api/auth', authRoutes);
-app.use('/api/session', sessionRoutes);
-app.use('/api/attendance', attendanceRoutes);
+// app.use('/api/auth', authRoutes);
+// app.use('/api/session', sessionRoutes);
+// app.use('/api/attendance', attendanceRoutes);
 
-app.use('/api/subjects', subjectRoutes);
+// app.use('/api/subjects', subjectRoutes);
 
 // Error handling middleware
 app.use(errorHandler);
