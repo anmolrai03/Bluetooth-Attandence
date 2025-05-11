@@ -1,77 +1,117 @@
 import Session from '../models/Session.js';
-import { generateQRCode } from '../utils/generateQR.js';
+import Attendance from '../models/Attendance.js';
+import User from '../models/User.js';
+import qr from 'qr-image';
+import { v4 as uuidv4 } from 'uuid';
 import { ErrorResponse } from '../middleware/errorMiddleware.js';
 
+// Teacher starts a new session
 export const startSession = async (req, res, next) => {
-  const { className, subjectId } = req.body;
-
   try {
-    const sessionId = `sess-${Date.now()}`;
-    const expiresAt = new Date(Date.now() + 
-      (process.env.SESSION_TIMEOUT_MINUTES || 5) * 60 * 1000);
+    const { className, subjectId } = req.body;
+    const teacherId = req.user.id;
 
-    const session = await Session.create({
+    // Verify teacher is assigned to this class and subject
+    const teacher = await User.findOne({
+      _id: teacherId,
       className,
-      subject: subjectId,
-      sessionId,
-      expiresAt,
-      teacher: req.user._id
+      subjects: subjectId,
+      role: 'teacher'
     });
 
-    const qrData = {
-      sessionId: session.sessionId,
-      className: session.className,
-      expiresAt: session.expiresAt.toISOString()
-    };
+    if (!teacher) {
+      return next(new ErrorResponse('Not authorized for this class/subject', 403));
+    }
 
-    const qrCodeUrl = await generateQRCode(qrData);
+    // Generate session data
+    const sessionId = uuidv4();
+    const expiresAt = new Date(Date.now() + 3 * 60 * 1000); // 3 minutes
+
+    // Create QR Code
+    const qrData = JSON.stringify({
+      sessionId,
+      className,
+      subjectId,
+      expiresAt: expiresAt.toISOString()
+    });
+
+    const qrImage = qr.imageSync(qrData, { type: 'png' });
+    const qrBase64 = `data:image/png;base64,${qrImage.toString('base64')}`;
+
+    // Create session record
+    const session = await Session.create({
+      sessionId,
+      className,
+      subject: subjectId,
+      teacher: teacherId,
+      expiresAt,
+      isActive: true
+    });
 
     res.status(201).json({
       success: true,
-      session: {
-        id: session._id,
-        sessionId: session.sessionId,
-        className: session.className,
-        expiresAt: session.expiresAt,
-        isActive: session.isActive
-      },
-      qrCodeUrl
+      qrCode: qrBase64,
+      sessionId: session.sessionId,
+      expiresAt: session.expiresAt
     });
+
   } catch (err) {
     next(err);
   }
 };
 
-export const getSessions = async (req, res, next) => {
+// Student validates and marks attendance
+export const validateSession = async (req, res, next) => {
   try {
-    const sessions = await Session.find({ teacher: req.user._id })
-      .populate('subject', 'name')
-      .sort({ createdAt: -1 });
+    const { sessionId } = req.body;
+    const studentId = req.user.id;
 
-    res.status(200).json({
-      success: true,
-      count: sessions.length,
-      data: sessions
-    });
-  } catch (err) {
-    next(err);
-  }
-};
-
-export const getSessionById = async (req, res, next) => {
-  try {
-    const session = await Session.findById(req.params.id)
-      .populate('subject', 'name')
-      .populate('teacher', 'name');
-
-    if (!session) {
-      return next(new ErrorResponse('Session not found', 404));
+    // Find valid session
+    const session = await Session.findOne({ sessionId });
+    if (!session || !session.isActive) {
+      return next(new ErrorResponse('Invalid session', 400));
     }
 
+    // Check expiration
+    if (new Date() > session.expiresAt) {
+      session.isActive = false;
+      await session.save();
+      return next(new ErrorResponse('Session expired', 400));
+    }
+
+    // Verify student belongs to this class and subject
+    const student = await User.findOne({
+      _id: studentId,
+      className: session.className,
+      subjects: session.subject,
+      role: 'student'
+    });
+
+    if (!student) {
+      return next(new ErrorResponse('Not enrolled in this class/subject', 403));
+    }
+
+    // Check existing attendance
+    const existingAttendance = await Attendance.findOne({
+      student: studentId,
+      session: session._id
+    });
+
+    if (existingAttendance) {
+      return next(new ErrorResponse('Attendance already marked', 400));
+    }
+
+    // Record attendance
+    await Attendance.create({
+      student: studentId,
+      session: session._id
+    });
+
     res.status(200).json({
       success: true,
-      data: session
+      message: 'Attendance marked successfully'
     });
+
   } catch (err) {
     next(err);
   }

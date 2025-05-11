@@ -7,6 +7,11 @@ import sessionRoutes from './routes/sessionRoutes.js';
 import attendanceRoutes from './routes/attendanceRoutes.js';
 import { errorHandler } from './middleware/errorMiddleware.js';
 
+
+import subjectRoutes from './routes/subjectRoute.js';
+
+
+
 dotenv.config();
 
 const app = express();
@@ -26,6 +31,8 @@ app.use(express.json());
 app.use('/api/auth', authRoutes);
 app.use('/api/session', sessionRoutes);
 app.use('/api/attendance', attendanceRoutes);
+
+app.use('/api/subjects', subjectRoutes);
 
 // Error handling middleware
 app.use(errorHandler);
