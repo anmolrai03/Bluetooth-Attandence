@@ -1,11 +1,11 @@
 import jwt from 'jsonwebtoken';
-import User from '../models/User.js';
-import Token from '../models/Token.js'; // Add this
+import User from '../models/user.models.js';
+import Token from '../models/token.models.js'; // Add this
 
-export const protect = async (req, res, next) => {
+const protect = async (req, res, next) => {
   let token = req.headers.authorization;
 
-  if (token && token.startsWith('Bearer ')) {
+  if (token?.startsWith('Bearer ')) {
     try {
       token = token.split(' ')[1];
       
@@ -30,7 +30,7 @@ export const protect = async (req, res, next) => {
   }
 };
 
-export const authorizeRoles = (...roles) => {
+const authorizeRoles = (...roles) => {
   return (req, res, next) => {
     if (!roles.includes(req.user.role)) {
       return res.status(403).json({ 
@@ -41,3 +41,5 @@ export const authorizeRoles = (...roles) => {
     next();
   };
 };
+
+export {protect , authorizeRoles};
