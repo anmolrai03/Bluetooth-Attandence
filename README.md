@@ -26,7 +26,7 @@ Follow these steps to clone the repository and run the project locally:
 ### Clone the Repository
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/anmolrai03/Bluetooth-Attandence.git
 cd Bluetooth-Attandence
 ```
 
@@ -52,7 +52,7 @@ Start the backend server:
 
 ```bash
 cd ../backend
-npm start
+npm run server
 ```
 
 Start the frontend development server:
@@ -67,7 +67,7 @@ npm run dev
 Open your browser and navigate to:
 
 ```
-http://localhost:3000
+http://localhost:5173
 ```
 
 ## Contributing
