@@ -3,7 +3,9 @@ import AttendanceSession from '../models/session.models.js';
 import Subject from '../models/subject.models.js';
 import Classroom from '../models/classroom.models.js';
 
-// POST endpoint to get attendance records
+
+//Teacher's endpoints starts here
+// POST endpoint
 const getAttendanceRecords = async (req, res) => {
   try {
     const { subjectId, classroomId, date } = req.body;
@@ -17,7 +19,7 @@ const getAttendanceRecords = async (req, res) => {
       });
     }
 
-    // Verify the teacher has sessions for this subject and classroom
+    // Verifying the teacher has sessions for this subject and classroom
     const hasSessions = await AttendanceSession.exists({
       teacher: teacherId,
       subject: subjectId,
@@ -31,7 +33,7 @@ const getAttendanceRecords = async (req, res) => {
       });
     }
 
-    // Build the query
+    // Building the query
     const query = { 
       teacher: teacherId,
       subject: subjectId,
@@ -162,4 +164,117 @@ const updateAttendanceStatus = async (req, res) => {
   }
 };
 
-export { getAttendanceRecords, updateAttendanceStatus };
+//Teacher's endpoint section ends here.
+
+//Student endpoint starts here.
+// GET endpoint for student attendance summary
+const getStudentAttendance = async (req, res) => {
+  try {
+    const studentId = req.user._id;
+
+    // Verify the user is a student
+    if (req.user.role !== 'student') {
+      return res.status(403).json({
+        success: false,
+        message: 'Only students can access this information'
+      });
+    }
+
+    // Get all attendance records for the student
+    const attendanceRecords = await Attendance.find({ student: studentId })
+      .populate({
+        path: 'subject',
+        select: 'name code'
+      })
+      .populate({
+        path: 'classroom',
+        select: 'name'
+      })
+      .lean();
+
+    // If no records found
+    if (attendanceRecords.length === 0) {
+      return res.json({
+        success: true,
+        message: 'No attendance records found',
+        data: {
+          bySubject: [],
+          overall: {
+            totalClasses: 0,
+            presentCount: 0,
+            percentage: 0,
+            classroom: null
+          }
+        }
+      });
+    }
+
+    // Group by subject
+    const subjectMap = new Map();
+    let totalPresent = 0;
+    let totalClasses = 0;
+    let classroom = null;
+
+    attendanceRecords.forEach(record => {
+      // Set classroom (assuming student belongs to one classroom)
+      if (!classroom) {
+        classroom = record.classroom;
+      }
+
+      // Initialize subject entry if not exists
+      if (!subjectMap.has(record.subject._id.toString())) {
+        subjectMap.set(record.subject._id.toString(), {
+          subject: record.subject,
+          presentCount: 0,
+          totalClasses: 0,
+          percentage: 0
+        });
+      }
+
+      // Update counts
+      const subjectEntry = subjectMap.get(record.subject._id.toString());
+      subjectEntry.totalClasses++;
+      totalClasses++;
+
+      if (record.status === 'present') {
+        subjectEntry.presentCount++;
+        totalPresent++;
+      }
+
+      // Calculate percentage
+      subjectEntry.percentage = Math.round(
+        (subjectEntry.presentCount / subjectEntry.totalClasses) * 100
+      );
+    });
+
+    // Convert map to array
+    const bySubject = Array.from(subjectMap.values());
+
+    // Calculate overall percentage
+    const overallPercentage = Math.round((totalPresent / totalClasses) * 100);
+
+    res.json({
+      success: true,
+      data: {
+        bySubject,
+        overall: {
+          totalClasses,
+          presentCount: totalPresent,
+          percentage: overallPercentage,
+          classroom
+        }
+      }
+    });
+
+  } catch (err) {
+    console.error('Error fetching student attendance:', err);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch attendance records',
+      error: process.env.NODE_ENV === 'development' ? err.message : undefined
+    });
+  }
+};
+//Student endpoint ends here
+
+export { getAttendanceRecords, updateAttendanceStatus, getStudentAttendance };
