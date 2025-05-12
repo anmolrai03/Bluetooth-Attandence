@@ -11,7 +11,7 @@ import { errorHandler } from './middleware/errorMiddleware.js';
 //routes import
 import authRoutes from './routes/authRoutes.js';
 import sessionRoutes from './routes/sessionRoutes.js';
-// import attendanceRoutes from './routes/attendanceRoutes.js';
+import attendanceRoutes from './routes/attendanceRoutes.js';
 // import subjectRoutes from './routes/subjectRoute.js';
 
 
@@ -31,7 +31,7 @@ app.use(express.json());
 // Routes starts here
 app.use('/api/auth', authRoutes);
 app.use('/api/session', sessionRoutes);
-// app.use('/api/attendance', attendanceRoutes);
+app.use('/api/attendance', attendanceRoutes);
 
 // app.use('/api/subjects', subjectRoutes);
 

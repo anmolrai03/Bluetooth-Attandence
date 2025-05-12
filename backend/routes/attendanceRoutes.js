@@ -1,20 +1,10 @@
 import express from 'express';
+import { getAttendanceRecords, updateAttendanceStatus } from '../controllers/attendanceController.js';
 import { protect, authorizeRoles } from '../middleware/authMiddleware.js';
-import { markAttendance, getAttendance } from '../controllers/attendanceController.js';
 
 const router = express.Router();
 
-router.post(
-  '/mark',
-  protect,
-  authorizeRoles('student'),
-  markAttendance
-);
-
-router.get(
-  '/:sessionId',
-  protect,
-  getAttendance
-);
+router.post('/records', protect, authorizeRoles('teacher'), getAttendanceRecords);
+router.patch('/update/:attendanceId', protect, authorizeRoles('teacher'), updateAttendanceStatus);
 
 export default router;
