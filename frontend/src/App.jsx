@@ -1,38 +1,62 @@
-import { BrowserRouter as Router, Routes, Route, Link } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { AuthProvider, useAuth } from './context/authContext';
 import Home from './components/home';
 import Login from './components/login';
 import SignUp from './components/SignUp';
+import StudentDashboard from './components/StudentDashboard';
+import TeacherDashboard from './components/TeacherDashboard';
+import AdminDashboard from './components/AdminDashboard';
+import Navbar from './components/navbar';
 
-const Navbar = () => {
-  return (
-    <nav className="bg-white/80 backdrop-blur-md shadow-sm fixed w-full z-10">
-      <div className="container mx-auto px-4 py-3 flex justify-between items-center">
-        <Link to="/" className="text-2xl font-bold text-gray-800">
-          <span className="text-indigo-500">Blue</span>Attend
-        </Link>
-        <div className="flex space-x-6 items-center">
-          <button className="bg-gradient-to-r from-amber-400 to-orange-400 text-white px-4 py-2 rounded-full shadow hover:shadow-md transition-all">
-            Scan QR Code
-          </button>
-          <Link to="/login" className="text-gray-600 hover:text-indigo-500 transition">Login</Link>
-          <Link to="/SignUp" className="text-gray-600 hover:text-indigo-500 transition">Sign Up</Link>
-        </div>
-      </div>
-    </nav>
-  );
+const ProtectedRoute = ({ children, allowedRoles }) => {
+  const { user } = useAuth();
+
+  if (!user) {
+    return <Navigate to="/login" replace />;
+  }
+
+  if (allowedRoles && !allowedRoles.includes(user.role)) {
+    return <Navigate to="/" replace />;
+  }
+
+  return children;
 };
 
-const App = () => (
-  <Router>
-    <Navbar />
-    <div className="pt-16"> {/* Add padding to prevent navbar overlap */}
-      <Routes>
-        <Route path="/" element={<Home />} />
-        <Route path="/login" element={<Login />} />
-        <Route path="/SignUp" element={<SignUp />} />
-      </Routes>
-    </div>
-  </Router>
-);
+const App = () => {
+  return (
+    <AuthProvider>
+      <Router>
+        <Navbar />
+        <div className="pt-16"> {/* Add padding to account for fixed navbar */}
+          <Routes>
+            <Route path="/" element={<Home />} />
+            <Route path="/login" element={<Login />} />
+            <Route path="/signup" element={<SignUp />} />
+            
+            <Route path="/student-dashboard" element={
+              <ProtectedRoute allowedRoles={['student']}>
+                <StudentDashboard />
+              </ProtectedRoute>
+            } />
+            
+            <Route path="/teacher-dashboard" element={
+              <ProtectedRoute allowedRoles={['teacher']}>
+                <TeacherDashboard />
+              </ProtectedRoute>
+            } />
+            
+            <Route path="/admin-dashboard" element={
+              <ProtectedRoute allowedRoles={['admin']}>
+                <AdminDashboard />
+              </ProtectedRoute>
+            } />
+            
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </div>
+      </Router>
+    </AuthProvider>
+  );
+};
 
 export default App;
