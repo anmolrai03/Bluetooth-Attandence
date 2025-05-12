@@ -2,6 +2,7 @@ import Attendance from '../models/attendance.models.js';
 import AttendanceSession from '../models/session.models.js';
 import Subject from '../models/subject.models.js';
 import Classroom from '../models/classroom.models.js';
+import User from '../models/user.models.js';
 
 
 //Teacher's endpoints starts here
@@ -167,7 +168,8 @@ const updateAttendanceStatus = async (req, res) => {
 //Teacher's endpoint section ends here.
 
 //Student endpoint starts here.
-// GET endpoint for student attendance summary
+
+// GET endpoint for student attendance summary starts here
 const getStudentAttendance = async (req, res) => {
   try {
     const studentId = req.user._id;
@@ -275,6 +277,114 @@ const getStudentAttendance = async (req, res) => {
     });
   }
 };
+//Student attendance summary ends here.
+
+// POST endpoint verify attendance starts here
+const verifyAttendance = async (req, res) => {
+  try {
+    const { qrCode, rssi } = req.body;
+    const studentId = req.user._id;
+
+    // Validate request
+    if (!qrCode || typeof rssi !== 'number') {
+      return res.status(400).json({
+        success: false,
+        message: 'QR code and RSSI values are required'
+      });
+    }
+
+    // Parse QR code data (assuming format from your session creation)
+    let qrData;
+    try {
+      qrData = JSON.parse(qrCode);
+    } catch (err) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid QR code format'
+      });
+    }
+
+    // Validate QR code structure
+    if (!qrData.t || !qrData.s || !qrData.c || !qrData.tk) {
+      return res.status(400).json({
+        success: false,
+        message: 'QR code missing required fields'
+      });
+    }
+
+    // Find active session matching QR code
+    const session = await AttendanceSession.findOne({
+      teacher: qrData.t,
+      subject: qrData.s,
+      classroom: qrData.c,
+      qrCode: qrData.tk,
+      status: 'active',
+      expiresAt: { $gt: new Date() }
+    });
+
+    if (!session) {
+      return res.status(404).json({
+        success: false,
+        message: 'No active session found or QR code expired'
+      });
+    }
+
+    // Validate RSSI range (-35 to -75 is typical for close proximity)
+    const isRssiValid = rssi >= -75 && rssi <= -35;
+
+    // Check if attendance already exists
+    const existingAttendance = await Attendance.findOne({
+      session: session._id,
+      student: studentId
+    });
+
+    if (existingAttendance) {
+      return res.status(409).json({
+        success: false,
+        message: 'Attendance already recorded for this session'
+      });
+    }
+
+    // Create attendance record
+    const attendance = new Attendance({
+      session: session._id,
+      student: studentId,
+      teacher: session.teacher,
+      status: isRssiValid ? 'present' : 'absent',
+      verification: {
+        qrCode: qrData.tk,
+        rssi,
+        timestamp: new Date()
+      },
+      subject: session.subject,
+      classroom: session.classroom
+    });
+
+    await attendance.save();
+
+    res.json({
+      success: true,
+      message: `Attendance marked as ${isRssiValid ? 'present' : 'absent'}`,
+      data: {
+        status: attendance.status,
+        subject: session.subject,
+        classroom: session.classroom,
+        timestamp: attendance.verification.timestamp,
+        rssiValid: isRssiValid
+      }
+    });
+
+  } catch (err) {
+    console.error('Attendance verification error:', err);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to verify attendance',
+      error: process.env.NODE_ENV === 'development' ? err.message : undefined
+    });
+  }
+};
+//verify attendance ends here
+
 //Student endpoint ends here
 
-export { getAttendanceRecords, updateAttendanceStatus, getStudentAttendance };
+export { getAttendanceRecords, updateAttendanceStatus, getStudentAttendance, verifyAttendance };

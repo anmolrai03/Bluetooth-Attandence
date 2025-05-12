@@ -1,5 +1,5 @@
 import express from 'express';
-import { getAttendanceRecords, updateAttendanceStatus, getStudentAttendance } from '../controllers/attendanceController.js';
+import { getAttendanceRecords, updateAttendanceStatus, getStudentAttendance, verifyAttendance } from '../controllers/attendanceController.js';
 import { protect, authorizeRoles } from '../middleware/authMiddleware.js';
 
 const router = express.Router();
@@ -10,5 +10,6 @@ router.patch('/update/:attendanceId', protect, authorizeRoles('teacher'), update
 
 //student routes
 router.get('/get-attendance', protect, authorizeRoles('student'), getStudentAttendance);
+router.post('/verify', protect, authorizeRoles('student'), verifyAttendance);
 
 export default router;
