@@ -12,7 +12,7 @@ import { errorHandler } from './middleware/errorMiddleware.js';
 import authRoutes from './routes/authRoutes.js';
 import sessionRoutes from './routes/sessionRoutes.js';
 import attendanceRoutes from './routes/attendanceRoutes.js';
-// import subjectRoutes from './routes/subjectRoute.js';
+import searchRoutes from './routes/searchRoutes.js';
 
 
 dotenv.config();
@@ -21,7 +21,7 @@ const app = express();
 
 // Middleware starts here
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+  origin: process.env.FRONTEND_URL || 'http://localhost:8000',
   methods: ['GET', 'POST'],
   credentials: true
 }));
@@ -32,16 +32,14 @@ app.use(express.json());
 app.use('/api/auth', authRoutes);
 app.use('/api/session', sessionRoutes);
 app.use('/api/attendance', attendanceRoutes);
-
-// app.use('/api/subjects', subjectRoutes);
-
+app.use('/api', searchRoutes);
 //Routes ends here.
 
 // Error handling middleware
 app.use(errorHandler);
 
 //connection code
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 8000;
 
 //db connection and server start
 connectDB()
