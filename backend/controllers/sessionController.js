@@ -160,6 +160,6 @@ const updateExpiredSessions = async () => {
 };
 
 // Run the expiration check periodically (e.g., every 5 minutes)
-// setInterval(updateExpiredSessions, 5 * 60 * 1000);
+setInterval(updateExpiredSessions, 5 * 60 * 1000);
 
 export { createSession, getActiveSessions, terminateSession };
