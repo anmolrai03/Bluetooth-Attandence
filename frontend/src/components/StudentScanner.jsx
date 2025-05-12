@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import axios from 'axios';
 import { QrReader } from 'react-qr-reader';
-import { useAuth } from '../context/AuthContext';
+import { useAuth } from '../context/authContext';
 
 export default function StudentScanner() {
   const { user } = useAuth();
