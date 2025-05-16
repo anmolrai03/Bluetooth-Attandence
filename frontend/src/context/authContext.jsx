@@ -12,16 +12,15 @@ export const AuthProvider = ({ children }) => {
 
   // Initialize auth state from sessionStorage
   useEffect(() => {
-    const initializeAuth = async () => {
+    const initializeAuth = () => {
       const token = sessionStorage.getItem('token');
       const userData = sessionStorage.getItem('user');
 
       if (token && userData) {
         try {
-          await AuthService.verifyToken(token);
           setUser(JSON.parse(userData));
         } catch (error) {
-          console.error('Token verification failed:', error);
+          console.error('Failed to parse user data:', error);
           sessionStorage.removeItem('token');
           sessionStorage.removeItem('user');
         }
@@ -86,6 +85,7 @@ export const AuthProvider = ({ children }) => {
 
   const logout = async () => {
     try {
+      // Optional: If you have a logout API endpoint
       await AuthService.logout();
     } catch (error) {
       console.error('Logout error:', error);

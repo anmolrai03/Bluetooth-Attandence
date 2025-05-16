@@ -24,7 +24,7 @@ export const AttendanceService = {
   },
 
   getStudentSummary: async () => {
-    const res = await apiClient.get('/attendance/records');
+    const res = await apiClient.get('/attendance/get-attendance');
     return res.data.data || [];
   }
 };

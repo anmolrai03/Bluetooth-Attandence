@@ -1,0 +1,859 @@
+// === CONTROLLERS ===
+
+//attendanceController.js
+import Attendance from '../models/attendance.models.js';
+import AttendanceSession from '../models/session.models.js';
+import Subject from '../models/subject.models.js';
+import Classroom from '../models/classroom.models.js';
+import User from '../models/user.models.js';
+
+
+//Teacher's endpoints starts here
+// POST endpoint
+const getAttendanceRecords = async (req, res) => {
+  try {
+    const { subjectId, classroomId, date } = req.body;
+    const teacherId = req.user._id;
+
+    // Validate required parameters
+    if (!subjectId || !classroomId) {
+      return res.status(400).json({
+        success: false,
+        message: 'subjectId and classroomId are required in the request body'
+      });
+    }
+
+    // Verifying the teacher has sessions for this subject and classroom
+    const hasSessions = await AttendanceSession.exists({
+      teacher: teacherId,
+      subject: subjectId,
+      classroom: classroomId
+    });
+
+    if (!hasSessions) {
+      return res.status(403).json({
+        success: false,
+        message: 'You have no attendance sessions for this subject and classroom combination'
+      });
+    }
+
+    // Building the query
+    const query = { 
+      teacher: teacherId,
+      subject: subjectId,
+      classroom: classroomId
+    };
+
+    // Add date filter if provided
+    if (date) {
+      const startDate = new Date(date);
+      startDate.setHours(0, 0, 0, 0);
+      
+      const endDate = new Date(date);
+      endDate.setHours(23, 59, 59, 999);
+
+      query.createdAt = { $gte: startDate, $lte: endDate };
+    }
+
+    // Fetch attendance records with student and session details
+    const records = await Attendance.find(query)
+      .populate({
+        path: 'student',
+        select: 'fullName email role'
+      })
+      .populate({
+        path: 'subject',
+        select: 'name code'
+      })
+      .populate({
+        path: 'classroom',
+        select: 'name'
+      })
+      .populate({
+        path: 'session',
+        select: 'createdAt durationMinutes status'
+      })
+      .sort({ createdAt: -1 }) // Sort by newest first
+      .lean();
+
+    // Format the response
+    const formattedRecords = records.map(record => ({
+      id: record._id,
+      student: {
+        id: record.student._id,
+        fullName: record.student.fullName,
+        email: record.student.email
+      },
+      subject: record.subject,
+      classroom: record.classroom,
+      status: record.status,
+      session: {
+        date: record.session.createdAt,
+        duration: record.session.durationMinutes,
+        status: record.session.status
+      },
+      verification: {
+        timestamp: record.verification.timestamp,
+        method: record.verification.qrCode ? 'QR Code' : 'Manual'
+      }
+    }));
+
+    res.json({
+      success: true,
+      count: formattedRecords.length,
+      data: formattedRecords
+    });
+
+  } catch (err) {
+    console.error('Error fetching attendance records:', err);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch attendance records',
+      error: process.env.NODE_ENV === 'development' ? err.message : undefined
+    });
+  }
+};
+
+// PATCH endpoint to update attendance status
+const updateAttendanceStatus = async (req, res) => {
+  try {
+    const { attendanceId } = req.params;
+    const { status } = req.body;
+    const teacherId = req.user._id;
+
+    // Validate input
+    if (!attendanceId || !status || !['present', 'absent'].includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Valid attendanceId and status (present/absent) are required'
+      });
+    }
+
+    // Verify the attendance record belongs to this teacher
+    const attendance = await Attendance.findOne({
+      _id: attendanceId,
+      teacher: teacherId
+    });
+
+    if (!attendance) {
+      return res.status(404).json({
+        success: false,
+        message: 'Attendance record not found or you are not authorized to modify it'
+      });
+    }
+
+    // Update the status
+    attendance.status = status;
+    await attendance.save();
+
+    res.json({
+      success: true,
+      message: 'Attendance status updated successfully',
+      data: {
+        id: attendance._id,
+        studentId: attendance.student,
+        previousStatus: req.body.previousStatus,
+        newStatus: attendance.status,
+        updatedAt: attendance.updatedAt
+      }
+    });
+
+  } catch (err) {
+    console.error('Error updating attendance status:', err);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to update attendance status',
+      error: process.env.NODE_ENV === 'development' ? err.message : undefined
+    });
+  }
+};
+
+//Teacher's endpoint section ends here.
+
+//Student endpoint starts here.
+
+// GET endpoint for student attendance summary starts here
+const getStudentAttendance = async (req, res) => {
+  try {
+    const studentId = req.user._id;
+
+    // Verify the user is a student
+    if (req.user.role !== 'student') {
+      return res.status(403).json({
+        success: false,
+        message: 'Only students can access this information'
+      });
+    }
+
+    // Get all attendance records for the student
+    const attendanceRecords = await Attendance.find({ student: studentId })
+      .populate({
+        path: 'subject',
+        select: 'name code'
+      })
+      .populate({
+        path: 'classroom',
+        select: 'name'
+      })
+      .lean();
+
+    // If no records found
+    if (attendanceRecords.length === 0) {
+      return res.json({
+        success: true,
+        message: 'No attendance records found',
+        data: {
+          bySubject: [],
+          overall: {
+            totalClasses: 0,
+            presentCount: 0,
+            percentage: 0,
+            classroom: null
+          }
+        }
+      });
+    }
+
+    // Group by subject
+    const subjectMap = new Map();
+    let totalPresent = 0;
+    let totalClasses = 0;
+    let classroom = null;
+
+    attendanceRecords.forEach(record => {
+      // Set classroom (assuming student belongs to one classroom)
+      if (!classroom) {
+        classroom = record.classroom;
+      }
+
+      // Initialize subject entry if not exists
+      if (!subjectMap.has(record.subject._id.toString())) {
+        subjectMap.set(record.subject._id.toString(), {
+          subject: record.subject,
+          presentCount: 0,
+          totalClasses: 0,
+          percentage: 0
+        });
+      }
+
+      // Update counts
+      const subjectEntry = subjectMap.get(record.subject._id.toString());
+      subjectEntry.totalClasses++;
+      totalClasses++;
+
+      if (record.status === 'present') {
+        subjectEntry.presentCount++;
+        totalPresent++;
+      }
+
+      // Calculate percentage
+      subjectEntry.percentage = Math.round(
+        (subjectEntry.presentCount / subjectEntry.totalClasses) * 100
+      );
+    });
+
+    // Convert map to array
+    const bySubject = Array.from(subjectMap.values());
+
+    // Calculate overall percentage
+    const overallPercentage = Math.round((totalPresent / totalClasses) * 100);
+
+    res.json({
+      success: true,
+      data: {
+        bySubject,
+        overall: {
+          totalClasses,
+          presentCount: totalPresent,
+          percentage: overallPercentage,
+          classroom
+        }
+      }
+    });
+
+  } catch (err) {
+    console.error('Error fetching student attendance:', err);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch attendance records',
+      error: process.env.NODE_ENV === 'development' ? err.message : undefined
+    });
+  }
+};
+//Student attendance summary ends here.
+
+// POST endpoint verify attendance starts here
+const verifyAttendance = async (req, res) => {
+  try {
+    const { qrCode, rssi } = req.body;
+    const studentId = req.user._id;
+
+    // Validate request
+    if (!qrCode || typeof rssi !== 'number') {
+      return res.status(400).json({
+        success: false,
+        message: 'QR code and RSSI values are required'
+      });
+    }
+
+    // Parse QR code data (assuming format from your session creation)
+    let qrData;
+    try {
+      qrData = JSON.parse(qrCode);
+    } catch (err) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid QR code format'
+      });
+    }
+
+    // Validate QR code structure
+    if (!qrData.t || !qrData.s || !qrData.c || !qrData.tk) {
+      return res.status(400).json({
+        success: false,
+        message: 'QR code missing required fields'
+      });
+    }
+
+    // Find active session matching QR code
+    const session = await AttendanceSession.findOne({
+      teacher: qrData.t,
+      subject: qrData.s,
+      classroom: qrData.c,
+      qrCode: qrData.tk,
+      status: 'active',
+      expiresAt: { $gt: new Date() }
+    });
+
+    if (!session) {
+      return res.status(404).json({
+        success: false,
+        message: 'No active session found or QR code expired'
+      });
+    }
+
+    // Validate RSSI range (-35 to -75 is typical for close proximity)
+    const isRssiValid = rssi >= -75 && rssi <= -35;
+
+    // Check if attendance already exists
+    const existingAttendance = await Attendance.findOne({
+      session: session._id,
+      student: studentId
+    });
+
+    if (existingAttendance) {
+      return res.status(409).json({
+        success: false,
+        message: 'Attendance already recorded for this session'
+      });
+    }
+
+    // Create attendance record
+    const attendance = new Attendance({
+      session: session._id,
+      student: studentId,
+      teacher: session.teacher,
+      status: isRssiValid ? 'present' : 'absent',
+      verification: {
+        qrCode: qrData.tk,
+        rssi,
+        timestamp: new Date()
+      },
+      subject: session.subject,
+      classroom: session.classroom
+    });
+
+    await attendance.save();
+
+    res.json({
+      success: true,
+      message: `Attendance marked as ${isRssiValid ? 'present' : 'absent'}`,
+      data: {
+        status: attendance.status,
+        subject: session.subject,
+        classroom: session.classroom,
+        timestamp: attendance.verification.timestamp,
+        rssiValid: isRssiValid
+      }
+    });
+
+  } catch (err) {
+    console.error('Attendance verification error:', err);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to verify attendance',
+      error: process.env.NODE_ENV === 'development' ? err.message : undefined
+    });
+  }
+};
+//verify attendance ends here
+
+//Student endpoint ends here
+
+export { getAttendanceRecords, updateAttendanceStatus, getStudentAttendance, verifyAttendance };
+
+//authController.js
+import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
+
+import User from '../models/user.models.js';
+import Token from '../models/token.models.js';
+
+import { ErrorResponse } from '../middleware/errorMiddleware.js';
+
+//SignUp Section starts here
+const signup = async (req, res, next) => {
+
+  const { name, email, password, role} = req.body;
+
+  try {
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
+      return next(new ErrorResponse('User already exists', 400));
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 12);
+    const user = await User.create({
+      fullName: name,
+      email,
+      password: hashedPassword,
+      role,
+    });
+
+    const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, {
+      expiresIn: process.env.JWT_EXPIRE || '1d',
+    });
+
+    res.status(201).json({ 
+      success: true,
+      message: "User created successfully",
+      token,
+      user: { id: user._id, name: user.fullName, role: user.role }
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+//sign up section ends here.
+
+//Loign section starts here
+const login = async (req, res, next) => {
+  const { email, password } = req.body;
+
+  try {
+    const user = await User.findOne({ email });
+    if (!user) {
+      return next(new ErrorResponse('No user exists', 401));
+    }
+
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) {
+      return next(new ErrorResponse('Invalid credentials', 401));
+    }
+
+    const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, {
+      expiresIn: process.env.JWT_EXPIRE || '1d',
+    });
+
+    res.status(200).json({
+      success: true,
+      message: "login success",
+      token,
+      user: { id: user._id, name: user.fullName, role: user.role }
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+// login section ends here
+
+//logout section starts here
+const logout = async (req, res, next) => {
+  try {
+    const token = req.headers.authorization?.split(' ')[1];
+    
+    if (!token) {
+      return next(new ErrorResponse('No token provided', 400));
+    }
+
+    // Verify the token to get its expiration
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    
+    // Add token to blacklist
+    await Token.create({
+      token,
+      expiresAt: new Date(decoded.exp * 1000) // Convert JWT exp to Date
+    });
+
+    res.status(200).json({
+      success: true,
+      message: "Logged out successfully"
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+// logout section ends here
+
+export {signup , login , logout};
+
+//searchController.js
+import Subject from '../models/subject.models.js';
+
+import Classroom from '../models/classroom.models.js'
+
+// GET all subjects api starts here
+const getAllSubjects = async (req, res) => {
+  try {
+    const subjects = await Subject.find({}).lean();
+    
+    res.json({
+      success: true,
+      count: subjects.length,
+      data: subjects.map(subject => ({
+        id: subject._id,
+        code: subject.code,
+        name: subject.name
+      }))
+    });
+    
+  } catch (err) {
+    console.error('Error fetching subjects:', err);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch subjects',
+      error: process.env.NODE_ENV === 'development' ? err.message : undefined
+    });
+  }
+};
+// get all subjects api ends here
+
+// GET all classrooms api starts here
+const getAllClassrooms = async (req, res) => {
+  try {
+    const classrooms = await Classroom.find({}).lean();
+    
+    res.json({
+      success: true,
+      count: classrooms.length,
+      data: classrooms.map(classroom => ({
+        id: classroom._id,
+        name: classroom.name
+      }))
+    });
+    
+  } catch (err) {
+    console.error('Error fetching classrooms:', err);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch classrooms',
+      error: process.env.NODE_ENV === 'development' ? err.message : undefined
+    });
+  }
+};
+//get all classroom api ends here
+
+export { getAllSubjects , getAllClassrooms};
+
+//sessionController.js
+import AttendanceSession from '../models/session.models.js';
+import QRCode from 'qrcode';
+import crypto from 'crypto';
+
+const createSession = async (req, res) => {
+  try {
+    const { subject, classroom } = req.body;
+    const teacher = req.user._id;
+
+    if (!subject || !classroom) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Subject and classroom are required' 
+      });
+    }
+
+    // 1. Generate secure session token
+    const sessionToken = crypto.randomBytes(32).toString('hex');
+    
+    // 2. Create optimized QR payload
+    const qrPayload = JSON.stringify({
+      t: teacher.toString(),
+      s: subject.toString(),
+      c: classroom.toString(),
+      tk: sessionToken
+    });
+
+    // 3. Generate QR code with optimized settings
+    const qrCode = await QRCode.toDataURL(qrPayload, {
+      errorCorrectionLevel: 'L',
+      margin: 1,
+      scale: 4
+    });
+
+    // 4. Create session with explicit status and auto-expiry
+    const session = new AttendanceSession({
+      teacher,
+      subject,
+      classroom,
+      qrCode: sessionToken,
+      durationMinutes: req.body.duration || 3,
+      status: 'active' // Explicitly set status
+    });
+
+    await session.save();
+
+    // 5. Response optimized for frontend
+    res.status(201).json({
+      success: true,
+      message: "Session started successfully",
+      sessionId: session._id,
+      qrCodeImage: qrCode,
+      expiresAt: session.expiresAt,
+      durationMinutes: session.durationMinutes,
+      status: session.status
+    });
+
+  } catch (err) {
+    console.error('Session creation error:', err);
+    res.status(500).json({ 
+      success: false,
+      message: 'Session creation failed',
+      error: process.env.NODE_ENV === 'development' ? err.message : undefined
+    });
+  }
+};
+
+const getActiveSessions = async (req, res) => {
+  try {
+    const currentTime = new Date();
+    
+    // Find active sessions that haven't expired yet
+    const sessions = await AttendanceSession.find({
+      teacher: req.user._id,
+      status: 'active',
+      expiresAt: { $gt: currentTime }
+    })
+    .populate({
+      path: 'subject',
+      select: 'name code _id'
+    })
+    .populate({
+      path: 'classroom',
+      select: 'name _id'
+    })
+    .lean(); // Using lean() for better performance
+
+    // Calculate remaining time for each session
+    const enrichedSessions = sessions.map(session => ({
+      ...session,
+      expiresInMinutes: Math.max(0, Math.round((session.expiresAt - currentTime) / 60000))
+    }));
+
+    res.json({
+      success: true,
+      count: enrichedSessions.length,
+      data: enrichedSessions
+    });
+  } catch (err) {
+    console.error('Failed to fetch active sessions:', err);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to fetch active sessions',
+      error: process.env.NODE_ENV === 'development' ? err.message : undefined
+    });
+  }
+};
+
+const terminateSession = async (req, res) => {
+  try {
+    const session = await AttendanceSession.findOne({
+      _id: req.params.id,
+      teacher: req.user._id,
+      status: 'active' // Only allow terminating active sessions
+    });
+
+    if (!session) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Active session not found or already terminated/expired' 
+      });
+    }
+
+    // Update session to terminated status
+    session.status = 'terminated';
+    session.expiresAt = new Date(); // Set expiration to now
+    await session.save();
+
+    res.json({ 
+      success: true, 
+      message: 'Session terminated successfully',
+      terminatedAt: new Date()
+    });
+  } catch (err) {
+    console.error('Session termination error:', err);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to terminate session',
+      error: process.env.NODE_ENV === 'development' ? err.message : undefined
+    });
+  }
+};
+
+// Optional: Background task to mark expired sessions
+const updateExpiredSessions = async () => {
+  try {
+    const result = await AttendanceSession.updateMany(
+      {
+        status: 'active',
+        expiresAt: { $lt: new Date() }
+      },
+      {
+        $set: { status: 'expired' }
+      }
+    );
+    console.log(`Marked ${result.modifiedCount} sessions as expired`);
+  } catch (err) {
+    console.error('Error updating expired sessions:', err);
+  }
+};
+
+// Run the expiration check periodically (e.g., every 5 minutes)
+setInterval(updateExpiredSessions, 5 * 60 * 1000);
+
+export { createSession, getActiveSessions, terminateSession };
+
+//test.js
+import Subject from '../models/Subject.js';
+
+export const seedSubjects = async (req, res) => {
+  try {
+    const subjects = [
+      { code: 'CS101', name: 'Computer Science Basics' },
+      { code: 'MATH201', name: 'Advanced Mathematics' },
+      { code: 'PHY301', name: 'Physics Fundamentals' },
+      { code: 'CHEM101', name: 'Intro to Chemistry' },
+      { code: 'BIO105', name: 'Biology Essentials' },
+    ];
+
+    const inserted = await Subject.insertMany(subjects);
+    res.status(201).json({ message: 'Dummy subjects added', data: inserted });
+  } catch (error) {
+    res.status(500).json({ message: 'Failed to seed subjects', error: error.message });
+  }
+};
+
+// === ROUTES ===
+
+//attendanceRoutes.js
+import express from 'express';
+import { getAttendanceRecords, updateAttendanceStatus, getStudentAttendance, verifyAttendance } from '../controllers/attendanceController.js';
+import { protect, authorizeRoles } from '../middleware/authMiddleware.js';
+
+const router = express.Router();
+
+//teacher routes.
+router.post('/records', protect, authorizeRoles('teacher'), getAttendanceRecords);
+router.patch('/update/:attendanceId', protect, authorizeRoles('teacher'), updateAttendanceStatus);
+
+//student routes
+router.get('/get-attendance', protect, authorizeRoles('student'), getStudentAttendance);
+router.post('/verify', protect, authorizeRoles('student'), verifyAttendance);
+
+export default router;
+
+//authRoutes.js
+import express from 'express';
+import { check } from 'express-validator';
+import { signup, login, logout } from '../controllers/authController.js';
+
+const router = express.Router();
+
+router.post( 
+  '/signup', 
+  [
+    check('name', 'Name is required').not().isEmpty(),
+    check('email', 'Please include a valid email').isEmail(),
+    check('password', 'Password must be at least 6 characters').isLength({ min: 6 }),
+    check('role', 'Role is required').not().isEmpty(),
+  ], 
+  signup
+);
+
+router.post(
+  '/login', 
+  [
+    check('email', 'Please include a valid email').isEmail(),
+    check('password', 'Password is required').exists(),
+  ], 
+login);
+
+
+router.post('/logout', logout);
+
+export default router;
+
+//searchRoutes.js
+import express from 'express';
+
+import { getAllClassrooms, getAllSubjects } from "../controllers/searchController.js";
+
+
+const router = express.Router();
+
+router.get(
+  '/get-classrooms' , 
+  getAllClassrooms
+);
+
+router.get(
+  "/get-subjects" ,
+  getAllSubjects
+);
+
+export default router;
+
+//sessionRoutes.js
+import express from 'express';
+import {
+  createSession,
+  getActiveSessions,
+  terminateSession
+} from '../controllers/sessionController.js';
+import { protect, authorizeRoles } from '../middleware/authMiddleware.js';
+
+const router = express.Router();
+
+router.post(
+  '/start',
+  protect,
+  authorizeRoles('teacher'),
+  createSession
+);
+
+//still needs to be worked on.
+router.get(
+  '/active',
+  protect,
+  authorizeRoles('teacher'),
+  getActiveSessions
+);
+
+router.patch(
+  '/terminate/:id', //sessionId
+  protect,
+  authorizeRoles('teacher'),
+  terminateSession
+);
+
+export default router;
+
+//subjectRoute.js
+import express from 'express';
+import { seedSubjects } from '../controllers/test.js';
+
+const router = express.Router();
+
+// Route: POST /api/subjects/seed
+router.post('/seed', seedSubjects);
+
+export default router;

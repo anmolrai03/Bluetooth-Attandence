@@ -20,7 +20,7 @@ export const AuthService = {
       const response = await apiClient.get('/auth/verify');
       return response.data;
     } catch (error) {
-      throw error;
+      console.log(error);
     }
   }
 };
