@@ -1,99 +1,124 @@
-// context/authContext.jsx
 import { createContext, useContext, useState, useEffect } from 'react';
-import axios from 'axios';
+import { useNavigate } from 'react-router-dom';
 import { toast } from 'react-toastify';
+import { AuthService } from '../services/authService';
 
 const AuthContext = createContext();
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const navigate = useNavigate();
 
-  // Set token globally
-  const setAxiosAuthToken = (token) => {
-    if (token) {
-      axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-    } else {
-      delete axios.defaults.headers.common['Authorization'];
-    }
-  };
-
+  // Initialize auth state from sessionStorage
   useEffect(() => {
-    const storedUser = sessionStorage.getItem('user');
-    const token = sessionStorage.getItem('token');
+    const initializeAuth = async () => {
+      const token = sessionStorage.getItem('token');
+      const userData = sessionStorage.getItem('user');
 
-    if (storedUser && token) {
-      setUser(JSON.parse(storedUser));
-      setAxiosAuthToken(token);
-    }
+      if (token && userData) {
+        try {
+          await AuthService.verifyToken(token);
+          setUser(JSON.parse(userData));
+        } catch (error) {
+          console.error('Token verification failed:', error);
+          sessionStorage.removeItem('token');
+          sessionStorage.removeItem('user');
+        }
+      }
+      setLoading(false);
+    };
 
-    setLoading(false);
+    initializeAuth();
   }, []);
 
   const login = async (credentials) => {
     try {
-      const response = await axios.post(
-        `${import.meta.env.VITE_API_URL}/auth/login/`,
-        credentials
-      );
-
-      const { token, user, message } = response.data;
+      const { token, user } = await AuthService.login(credentials);
+      
+      if (!token || !user) {
+        throw new Error('Invalid response from server');
+      }
+      
+      // Store in sessionStorage
       sessionStorage.setItem('token', token);
       sessionStorage.setItem('user', JSON.stringify(user));
-      setAxiosAuthToken(token);
       setUser(user);
-      toast.success(message || 'Login successful!');
+      
+      // Redirect based on role
+      const redirectPath = user.role === 'teacher' 
+        ? '/teacher-dashboard' 
+        : '/student-dashboard';
+      navigate(redirectPath);
+      
+      toast.success(`Welcome back, ${user.name}!`);
       return user;
     } catch (error) {
-      const errorMsg =
-        error.response?.data?.error || error.message || 'Login failed';
-      toast.error(errorMsg);
-      return null;
+      toast.error(error.response?.data?.error || error.message || 'Login failed');
+      throw error;
     }
   };
 
   const signup = async (userData) => {
     try {
-      const response = await axios.post(
-        `${import.meta.env.VITE_API_URL}/auth/signup/`,
-        userData
-      );
-
-      const { token, user, message } = response.data;
+      const { token, user } = await AuthService.signup(userData);
+      
+      if (!token || !user) {
+        throw new Error('Invalid response from server');
+      }
+      
       sessionStorage.setItem('token', token);
       sessionStorage.setItem('user', JSON.stringify(user));
-      setAxiosAuthToken(token);
       setUser(user);
-      toast.success(message || 'Signup successful!');
+      
+      const redirectPath = user.role === 'teacher'
+        ? '/teacher-dashboard'
+        : '/student-dashboard';
+      navigate(redirectPath);
+      
+      toast.success('Registration successful!');
       return user;
     } catch (error) {
-      const errorMsg =
-        error.response?.data?.error || error.message || 'Signup failed';
-      toast.error(errorMsg);
-      return null;
+      toast.error(error.response?.data?.error || error.message || 'Registration failed');
+      throw error;
     }
   };
 
-  const logout = () => {
-    sessionStorage.removeItem('token');
-    sessionStorage.removeItem('user');
-    setAxiosAuthToken(null);
-    setUser(null);
-    toast.success('Logged out successfully');
-  };
-
-  const logoutSilently = () => {
-    sessionStorage.removeItem('token');
-    sessionStorage.removeItem('user');
-    setAxiosAuthToken(null);
-    setUser(null);
+  const logout = async () => {
+    try {
+      await AuthService.logout();
+    } catch (error) {
+      console.error('Logout error:', error);
+    } finally {
+      // Clear sessionStorage
+      sessionStorage.removeItem('token');
+      sessionStorage.removeItem('user');
+      setUser(null);
+      navigate('/login');
+      toast.success('Logged out successfully');
+    }
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, signup, logout }}>
-      {children}
+    <AuthContext.Provider
+      value={{
+        user,
+        loading,
+        login,
+        signup,
+        logout,
+        isAuthenticated: !!user
+      }}
+    >
+      {!loading && children}
     </AuthContext.Provider>
   );
 };
 
-export const useAuth = () => useContext(AuthContext);
+export const useAuth = () => {
+  const context = useContext(AuthContext);
+  if (!context) {
+    throw new Error('useAuth must be used within an AuthProvider');
+  }
+  return context;
+};
