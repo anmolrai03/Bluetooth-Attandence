@@ -3,7 +3,7 @@ import apiClient from './apiClient';
 export const UserService = {
   getClassrooms: async () => {
     const res = await apiClient.get('/get-classrooms');
-    return res.data.data || []; // return array directly
+    return res.data.data || [];
   },
 
   getSubjects: async () => {

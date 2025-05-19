@@ -71,7 +71,7 @@ const ViewAttendance = () => {
           >
             <option value="">All Classrooms</option>
             {classrooms.map(c => (
-              <option key={c._id} value={c._id}>{c.name}</option>
+              <option key={c.id} value={c.id}>{c.name}</option>
             ))}
           </select>
           <select className="p-2 border rounded"
@@ -80,7 +80,7 @@ const ViewAttendance = () => {
           >
             <option value="">All Subjects</option>
             {subjects.map(s => (
-              <option key={s._id} value={s._id}>{s.code} - {s.name}</option>
+              <option key={s.id} value={s.id}>{s.code} - {s.name}</option>
             ))}
           </select>
           <DatePicker
