@@ -22,7 +22,7 @@ const app = express();
 // Middleware starts here
 app.use(cors({
   origin: process.env.FRONTEND_URL || 'http://localhost:8000',
-  methods: ['GET', 'POST'],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   credentials: true
 }));
 app.use(express.json());
