@@ -1,9 +1,8 @@
-import Attendance from '../models/attendance.models.js';
-import AttendanceSession from '../models/session.models.js';
-import Subject from '../models/subject.models.js';
-import Classroom from '../models/classroom.models.js';
-import User from '../models/user.models.js';
-
+import Attendance from "../models/attendance.models.js";
+import AttendanceSession from "../models/session.models.js";
+import Subject from "../models/subject.models.js";
+import Classroom from "../models/classroom.models.js";
+import User from "../models/user.models.js";
 
 //Teacher's endpoints starts here
 // POST endpoint
@@ -16,7 +15,7 @@ const getAttendanceRecords = async (req, res) => {
     if (!subjectId || !classroomId) {
       return res.status(400).json({
         success: false,
-        message: 'subjectId and classroomId are required in the request body'
+        message: "subjectId and classroomId are required in the request body",
       });
     }
 
@@ -24,28 +23,36 @@ const getAttendanceRecords = async (req, res) => {
     const hasSessions = await AttendanceSession.exists({
       teacher: teacherId,
       subject: subjectId,
-      classroom: classroomId
+      classroom: classroomId,
     });
 
     if (!hasSessions) {
       return res.status(403).json({
         success: false,
-        message: 'You have no attendance sessions for this subject and classroom combination'
+        message:
+          "You have no attendance sessions for this subject and classroom combination",
       });
     }
 
     // Building the query
-    const query = { 
+    const query = {
       teacher: teacherId,
       subject: subjectId,
-      classroom: classroomId
+      classroom: classroomId,
     };
 
     // Add date filter if provided
     if (date) {
+      
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid date format. Use YYYY-MM-DD'
+        });
+      }
       const startDate = new Date(date);
       startDate.setHours(0, 0, 0, 0);
-      
+
       const endDate = new Date(date);
       endDate.setHours(23, 59, 59, 999);
 
@@ -55,58 +62,60 @@ const getAttendanceRecords = async (req, res) => {
     // Fetch attendance records with student and session details
     const records = await Attendance.find(query)
       .populate({
-        path: 'student',
-        select: 'fullName email role'
+        path: "student",
+        select: "fullName email role",
       })
       .populate({
-        path: 'subject',
-        select: 'name code'
+        path: "subject",
+        select: "name code",
       })
       .populate({
-        path: 'classroom',
-        select: 'name'
+        path: "classroom",
+        select: "name",
       })
       .populate({
-        path: 'session',
-        select: 'createdAt durationMinutes status'
+        path: "session",
+        select: "createdAt durationMinutes status",
       })
       .sort({ createdAt: -1 }) // Sort by newest first
       .lean();
 
     // Format the response
-    const formattedRecords = records.map(record => ({
+    // In getAttendanceRecords controller
+    const formattedRecords = records.map((record) => ({
       id: record._id,
       student: {
-        id: record.student._id,
-        fullName: record.student.fullName,
-        email: record.student.email
+        id: record.student?._id || null,
+        fullName: record.student?.fullName || "Unknown",
+        email: record.student?.email || "N/A",
       },
-      subject: record.subject,
-      classroom: record.classroom,
+      subject: record.subject || { _id: null, code: "N/A", name: "Unknown" },
+      classroom: record.classroom || { _id: null, name: "Unknown" },
       status: record.status,
-      session: {
-        date: record.session.createdAt,
-        duration: record.session.durationMinutes,
-        status: record.session.status
-      },
+      session: record.session
+        ? {
+            date: record.session.createdAt,
+            duration: record.session.durationMinutes,
+            status: record.session.status,
+          }
+        : null, // Handle null session
       verification: {
-        timestamp: record.verification.timestamp,
-        method: record.verification.qrCode ? 'QR Code' : 'Manual'
-      }
+        timestamp: record.verification?.timestamp || new Date(),
+        method: record.verification?.qrCode ? "QR Code" : "Manual",
+      },
     }));
 
     res.json({
       success: true,
       count: formattedRecords.length,
-      data: formattedRecords
+      data: formattedRecords,
     });
-
   } catch (err) {
-    console.error('Error fetching attendance records:', err);
+    console.error("Error fetching attendance records:", err);
     res.status(500).json({
       success: false,
-      message: 'Failed to fetch attendance records',
-      error: process.env.NODE_ENV === 'development' ? err.message : undefined
+      message: "Failed to fetch attendance records",
+      error: process.env.NODE_ENV === "development" ? err.message : undefined,
     });
   }
 };
@@ -119,23 +128,24 @@ const updateAttendanceStatus = async (req, res) => {
     const teacherId = req.user._id;
 
     // Validate input
-    if (!attendanceId || !status || !['present', 'absent'].includes(status)) {
+    if (!attendanceId || !status || !["present", "absent"].includes(status)) {
       return res.status(400).json({
         success: false,
-        message: 'Valid attendanceId and status (present/absent) are required'
+        message: "Valid attendanceId and status (present/absent) are required",
       });
     }
 
     // Verify the attendance record belongs to this teacher
     const attendance = await Attendance.findOne({
       _id: attendanceId,
-      teacher: teacherId
+      teacher: teacherId,
     });
 
     if (!attendance) {
       return res.status(404).json({
         success: false,
-        message: 'Attendance record not found or you are not authorized to modify it'
+        message:
+          "Attendance record not found or you are not authorized to modify it",
       });
     }
 
@@ -145,22 +155,21 @@ const updateAttendanceStatus = async (req, res) => {
 
     res.json({
       success: true,
-      message: 'Attendance status updated successfully',
+      message: "Attendance status updated successfully",
       data: {
         id: attendance._id,
         studentId: attendance.student,
         previousStatus: req.body.previousStatus,
         newStatus: attendance.status,
-        updatedAt: attendance.updatedAt
-      }
+        updatedAt: attendance.updatedAt,
+      },
     });
-
   } catch (err) {
-    console.error('Error updating attendance status:', err);
+    console.error("Error updating attendance status:", err);
     res.status(500).json({
       success: false,
-      message: 'Failed to update attendance status',
-      error: process.env.NODE_ENV === 'development' ? err.message : undefined
+      message: "Failed to update attendance status",
+      error: process.env.NODE_ENV === "development" ? err.message : undefined,
     });
   }
 };
@@ -175,22 +184,22 @@ const getStudentAttendance = async (req, res) => {
     const studentId = req.user._id;
 
     // Verify the user is a student
-    if (req.user.role !== 'student') {
+    if (req.user.role !== "student") {
       return res.status(403).json({
         success: false,
-        message: 'Only students can access this information'
+        message: "Only students can access this information",
       });
     }
 
     // Get all attendance records for the student
     const attendanceRecords = await Attendance.find({ student: studentId })
       .populate({
-        path: 'subject',
-        select: 'name code'
+        path: "subject",
+        select: "name code",
       })
       .populate({
-        path: 'classroom',
-        select: 'name'
+        path: "classroom",
+        select: "name",
       })
       .lean();
 
@@ -198,16 +207,16 @@ const getStudentAttendance = async (req, res) => {
     if (attendanceRecords.length === 0) {
       return res.json({
         success: true,
-        message: 'No attendance records found',
+        message: "No attendance records found",
         data: {
           bySubject: [],
           overall: {
             totalClasses: 0,
             presentCount: 0,
             percentage: 0,
-            classroom: null
-          }
-        }
+            classroom: null,
+          },
+        },
       });
     }
 
@@ -217,7 +226,7 @@ const getStudentAttendance = async (req, res) => {
     let totalClasses = 0;
     let classroom = null;
 
-    attendanceRecords.forEach(record => {
+    attendanceRecords.forEach((record) => {
       // Set classroom (assuming student belongs to one classroom)
       if (!classroom) {
         classroom = record.classroom;
@@ -229,7 +238,7 @@ const getStudentAttendance = async (req, res) => {
           subject: record.subject,
           presentCount: 0,
           totalClasses: 0,
-          percentage: 0
+          percentage: 0,
         });
       }
 
@@ -238,7 +247,7 @@ const getStudentAttendance = async (req, res) => {
       subjectEntry.totalClasses++;
       totalClasses++;
 
-      if (record.status === 'present') {
+      if (record.status === "present") {
         subjectEntry.presentCount++;
         totalPresent++;
       }
@@ -263,17 +272,16 @@ const getStudentAttendance = async (req, res) => {
           totalClasses,
           presentCount: totalPresent,
           percentage: overallPercentage,
-          classroom
-        }
-      }
+          classroom,
+        },
+      },
     });
-
   } catch (err) {
-    console.error('Error fetching student attendance:', err);
+    console.error("Error fetching student attendance:", err);
     res.status(500).json({
       success: false,
-      message: 'Failed to fetch attendance records',
-      error: process.env.NODE_ENV === 'development' ? err.message : undefined
+      message: "Failed to fetch attendance records",
+      error: process.env.NODE_ENV === "development" ? err.message : undefined,
     });
   }
 };
@@ -286,10 +294,10 @@ const verifyAttendance = async (req, res) => {
     const studentId = req.user._id;
 
     // Validate request
-    if (!qrCode || typeof rssi !== 'number') {
+    if (!qrCode || typeof rssi !== "number") {
       return res.status(400).json({
         success: false,
-        message: 'QR code and RSSI values are required'
+        message: "QR code and RSSI values are required",
       });
     }
 
@@ -300,7 +308,7 @@ const verifyAttendance = async (req, res) => {
     } catch (err) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid QR code format'
+        message: "Invalid QR code format",
       });
     }
 
@@ -308,7 +316,7 @@ const verifyAttendance = async (req, res) => {
     if (!qrData.t || !qrData.s || !qrData.c || !qrData.tk) {
       return res.status(400).json({
         success: false,
-        message: 'QR code missing required fields'
+        message: "QR code missing required fields",
       });
     }
 
@@ -318,14 +326,14 @@ const verifyAttendance = async (req, res) => {
       subject: qrData.s,
       classroom: qrData.c,
       qrCode: qrData.tk,
-      status: 'active',
-      expiresAt: { $gt: new Date() }
+      status: "active",
+      expiresAt: { $gt: new Date() },
     });
 
     if (!session) {
       return res.status(404).json({
         success: false,
-        message: 'No active session found or QR code expired'
+        message: "No active session found or QR code expired",
       });
     }
 
@@ -335,13 +343,13 @@ const verifyAttendance = async (req, res) => {
     // Check if attendance already exists
     const existingAttendance = await Attendance.findOne({
       session: session._id,
-      student: studentId
+      student: studentId,
     });
 
     if (existingAttendance) {
       return res.status(409).json({
         success: false,
-        message: 'Attendance already recorded for this session'
+        message: "Attendance already recorded for this session",
       });
     }
 
@@ -350,36 +358,35 @@ const verifyAttendance = async (req, res) => {
       session: session._id,
       student: studentId,
       teacher: session.teacher,
-      status: isRssiValid ? 'present' : 'absent',
+      status: isRssiValid ? "present" : "absent",
       verification: {
         qrCode: qrData.tk,
         rssi,
-        timestamp: new Date()
+        timestamp: new Date(),
       },
       subject: session.subject,
-      classroom: session.classroom
+      classroom: session.classroom,
     });
 
     await attendance.save();
 
     res.json({
       success: true,
-      message: `Attendance marked as ${isRssiValid ? 'present' : 'absent'}`,
+      message: `Attendance marked as ${isRssiValid ? "present" : "absent"}`,
       data: {
         status: attendance.status,
         subject: session.subject,
         classroom: session.classroom,
         timestamp: attendance.verification.timestamp,
-        rssiValid: isRssiValid
-      }
+        rssiValid: isRssiValid,
+      },
     });
-
   } catch (err) {
-    console.error('Attendance verification error:', err);
+    console.error("Attendance verification error:", err);
     res.status(500).json({
       success: false,
-      message: 'Failed to verify attendance',
-      error: process.env.NODE_ENV === 'development' ? err.message : undefined
+      message: "Failed to verify attendance",
+      error: process.env.NODE_ENV === "development" ? err.message : undefined,
     });
   }
 };
@@ -387,4 +394,9 @@ const verifyAttendance = async (req, res) => {
 
 //Student endpoint ends here
 
-export { getAttendanceRecords, updateAttendanceStatus, getStudentAttendance, verifyAttendance };
+export {
+  getAttendanceRecords,
+  updateAttendanceStatus,
+  getStudentAttendance,
+  verifyAttendance,
+};
