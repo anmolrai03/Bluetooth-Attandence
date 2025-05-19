@@ -13,7 +13,7 @@ export const AttendanceService = {
       return {
         success: false,
         message: error.response?.data?.message || error.message,
-        data: error.response?.data,
+        data: error.data,
         status: error.response?.status
       };
     }
@@ -35,6 +35,8 @@ export const AttendanceService = {
 
   getStudentSummary: async () => {
     const res = await apiClient.get('/attendance/get-attendance');
-    return res.data.data || [];
+    // console.log("api", res.data);
+    // console.log(res.data.data);
+    return res.data || [];
   }
 };
