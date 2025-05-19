@@ -2,11 +2,21 @@ import apiClient from './apiClient';
 
 export const AttendanceService = {
   verify: async (qrData, rssi) => {
-    const res = await apiClient.post('/attendance/verify', {
-      qrCode: JSON.stringify(qrData),
-      rssi
-    });
-    return res.data;
+    try {
+      const response = await apiClient.post('/attendance/verify', {
+        qrCode: JSON.stringify(qrData),
+        rssi
+      });
+      return response.data;
+    } catch (error) {
+      // Return unified error format
+      return {
+        success: false,
+        message: error.response?.data?.message || error.message,
+        data: error.response?.data,
+        status: error.response?.status
+      };
+    }
   },
 
   getRecords: async ({ subjectId, classroomId, date }) => {
