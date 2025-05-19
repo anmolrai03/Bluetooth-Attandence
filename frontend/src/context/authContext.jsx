@@ -38,7 +38,10 @@ export const AuthProvider = ({ children }) => {
       if (!token || !user) {
         throw new Error('Invalid response from server');
       }
+
+      // alert(message);
       
+
       // Store in sessionStorage
       sessionStorage.setItem('token', token);
       sessionStorage.setItem('user', JSON.stringify(user));

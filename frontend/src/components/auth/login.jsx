@@ -125,3 +125,115 @@ const Login = () => {
 };
 
 export default Login;
+
+
+
+
+// // Login.jsx
+// import { useState } from 'react';
+// import { motion } from 'framer-motion';
+// import { Link } from 'react-router-dom';
+// import { useAuth } from '../../context/authContext';
+// import { toast } from 'react-toastify';
+// import LoadingSpinner from '../LoadingSpinner';
+
+// const Login = () => {
+//   const [formData, setFormData] = useState({
+//     email: '',
+//     password: ''
+//   });
+//   const [loading, setLoading] = useState(false);
+//   const [errors, setErrors] = useState({});
+//   const { login } = useAuth();
+
+//   const handleChange = (e) => {
+//     setFormData({ ...formData, [e.target.name]: e.target.value });
+//     setErrors(prev => ({ ...prev, [e.target.name]: '' }));
+//   };
+
+//   const validateForm = () => {
+//     const newErrors = {};
+//     if (!formData.email.trim()) newErrors.email = 'Email is required';
+//     else if (!/^\S+@\S+\.\S+$/.test(formData.email)) newErrors.email = 'Invalid email format';
+    
+//     if (!formData.password) newErrors.password = 'Password is required';
+//     else if (formData.password.length < 6) newErrors.password = 'Password must be at least 6 characters';
+    
+//     setErrors(newErrors);
+//     return Object.keys(newErrors).length === 0;
+//   };
+
+//   const handleSubmit = async (e) => {
+//     e.preventDefault();
+//     if (!validateForm()) return;
+
+//     setLoading(true);
+//     try {
+//       const user = await login(formData);
+//       toast.success(`Welcome back, ${user.name}!`);
+//     } catch (error) {
+//       toast.error(error.response?.data?.message || 'Login failed. Please check your credentials.');
+//     } finally {
+//       setLoading(false);
+//     }
+//   };
+
+//   return (
+//     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-gray-100 pt-16">
+//       <motion.div
+//         className="w-full max-w-md mx-4 bg-white rounded-xl shadow-lg p-8"
+//         initial={{ scale: 0.96, opacity: 0 }}
+//         animate={{ scale: 1, opacity: 1 }}
+//         transition={{ duration: 0.4 }}
+//       >
+//         <div className="text-center mb-8">
+//           <h2 className="text-3xl font-bold text-gray-800 mb-2">Welcome Back</h2>
+//           <p className="text-gray-500">Sign in to continue</p>
+//         </div>
+
+//         <form onSubmit={handleSubmit} className="space-y-6">
+//           <div>
+//             <label className="block text-gray-700 mb-2 font-medium">Email</label>
+//             <input
+//               type="email"
+//               name="email"
+//               value={formData.email}
+//               onChange={handleChange}
+//               className={`w-full px-4 py-3 border ${errors.email ? 'border-red-500' : 'border-gray-200'} rounded-lg focus:ring-2 focus:ring-blue-500 transition`}
+//               placeholder="your@email.com"
+//             />
+//             {errors.email && <p className="mt-2 text-sm text-red-600">{errors.email}</p>}
+//           </div>
+
+//           <div>
+//             <label className="block text-gray-700 mb-2 font-medium">Password</label>
+//             <input
+//               type="password"
+//               name="password"
+//               value={formData.password}
+//               onChange={handleChange}
+//               className={`w-full px-4 py-3 border ${errors.password ? 'border-red-500' : 'border-gray-200'} rounded-lg focus:ring-2 focus:ring-blue-500 transition`}
+//               placeholder="••••••••"
+//             />
+//             {errors.password && <p className="mt-2 text-sm text-red-600">{errors.password}</p>}
+//           </div>
+
+//           <button
+//             type="submit"
+//             disabled={loading}
+//             className="w-full bg-blue-600 text-white py-3 rounded-lg font-semibold hover:bg-blue-700 transition disabled:opacity-70 flex justify-center items-center"
+//           >
+//             {loading ? <LoadingSpinner size={6} color="white" /> : 'Login'}
+//           </button>
+
+//           <p className="text-center text-gray-600">
+//             Don't have an account?{' '}
+//             <Link to="/signup" className="text-blue-600 hover:underline">Sign up</Link>
+//           </p>
+//         </form>
+//       </motion.div>
+//     </div>
+//   );
+// };
+
+// export default Login;
