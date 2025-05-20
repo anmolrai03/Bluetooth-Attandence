@@ -136,7 +136,8 @@ const ScanAttendanceView = () => {
     setError(null);
 
     try {
-      const rssi = demoMode ? generatedRssi : -55;
+      const rssi = demoMode ? generatedRssi : currentRssi;
+      
       const response = await AttendanceService.verify(qrData, rssi);
 
       if (response.success) {
